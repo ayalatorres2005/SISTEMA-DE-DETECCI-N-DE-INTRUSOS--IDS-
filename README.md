@@ -1,102 +1,116 @@
-"""
-main.py — IDS FIEE
-Sistema de Detección de Intrusos basado en POO + IA
-Curso: Programación Orientada a Objetos
+# 🛡️ IDS FIEE — Sistema de Detección de Intrusos
 
-Autor   : [Tu nombre]
-Curso   : Programación Orientada a Objetos
-Fecha   : 2025
-"""
-import sys
+Sistema de Detección de Intrusos (IDS) basado en **Programación Orientada a Objetos** e **Inteligencia Artificial**, desarrollado como proyecto del curso de POO.
 
+<div align="center">
 
-def cabecera():
-    print("\n" + "="*62)
-    print("   SISTEMA DE DETECCIÓN DE INTRUSOS (IDS) — FIEE")
-    print("   Ciberseguridad en Redes de Telecomunicaciones — POO")
-    print("="*62 + "\n")
+![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python&logoColor=white)
+![Estado](https://img.shields.io/badge/estado-en%20desarrollo-yellow)
+![Licencia](https://img.shields.io/badge/licencia-académica-lightgrey)
 
+</div>
 
-def main():
-    cabecera()
+---
 
-    from core.sniffer           import SnifferSimulado
-    from modelos.motor_ia       import MotorIA
-    from alertas.gestor_alertas import GestorAlertas
-    from registro.logger        import LoggerIDS
-    from registro.generador_pdf import GeneradorPDF
+## 📖 Descripción
 
-    # Detectar si TensorFlow está disponible (failsafe)
-    try:
-        import tensorflow  # noqa: F401
-        usar_tf = True
-    except ImportError:
-        print("  [INFO] TensorFlow no encontrado. Se usará solo Random Forest.\n")
-        usar_tf = False
+Este proyecto simula un **IDS (Intrusion Detection System)** orientado a redes de telecomunicaciones. Combina un motor de reglas clásico con modelos de **Machine Learning** (Random Forest y, opcionalmente, TensorFlow) para clasificar tráfico de red simulado, generar alertas de seguridad y producir un reporte final en PDF.
 
-    # ── 1. INICIALIZAR COMPONENTES ───────────────────────────────────
-    print("▶ [1/5] Inicializando componentes del sistema...")
-    sniffer  = SnifferSimulado(lista_negra=["203.0.113.4"], semilla=99)
-    motor    = MotorIA(usar_tensorflow=usar_tf)
-    gestor   = GestorAlertas()
-    logger   = LoggerIDS()
-    pdf_gen  = GeneradorPDF()
-    print("   ✓ Sniffer, MotorIA, GestorAlertas, Logger, PDF — listos\n")
+---
 
-    # ── 2. GENERAR DATOS DE ENTRENAMIENTO ────────────────────────────
-    print("▶ [2/5] Generando dataset de entrenamiento (simulado)...")
-    paquetes_train, etiquetas_train = sniffer.generar_con_etiquetas(cantidad=400)
-    from collections import Counter
-    dist = Counter(etiquetas_train)
-    for etiq, cnt in dist.items():
-        print(f"   {etiq:12s}: {cnt} muestras")
-    print()
+## ⚙️ Flujo de ejecución (`main.py`)
 
-    # ── 3. ENTRENAR MODELOS DE IA ────────────────────────────────────
-    print("▶ [3/5] Entrenando modelos de IA...")
-    metricas_ia = motor.entrenar(paquetes_train, etiquetas_train)
+El programa se ejecuta en **5 etapas** secuenciales:
 
-    # ── 4. MONITOREAR TRÁFICO EN VIVO ───────────────────────────────
-    print("▶ [4/5] Monitoreando tráfico de red (60 paquetes)...")
-    paquetes_live = sniffer.capturar(cantidad=60)
-    paquetes_live = sniffer.filtrar(paquetes_live)
-    print(f"   Paquetes capturados y filtrados: {len(paquetes_live)}\n")
+| Etapa | Descripción |
+|:---:|---|
+| 1️⃣ | Inicialización de componentes (`Sniffer`, `MotorIA`, `GestorAlertas`, `Logger`, `GeneradorPDF`) |
+| 2️⃣ | Generación del dataset de entrenamiento simulado (400 paquetes etiquetados) |
+| 3️⃣ | Entrenamiento de los modelos de IA |
+| 4️⃣ | Monitoreo de tráfico en vivo (60 paquetes) y detección de amenazas |
+| 5️⃣ | Generación del reporte final en PDF |
 
-    amenazas = 0
-    for pkt in paquetes_live:
-        resultado = motor.analizar(pkt)
-        alerta    = gestor.crear_alerta(pkt, resultado)
-        if alerta:
-            amenazas += 1
-            print(f"   {alerta}")
-            logger.registrar(alerta)
+```
+Inicializar → Generar dataset → Entrenar IA → Monitorear tráfico → Generar PDF
+```
 
-    print(f"\n   Total amenazas detectadas: {amenazas} / {len(paquetes_live)}")
+---
 
-    # ── 5. GENERAR REPORTE PDF ──────────────────────────────────────
-    print("\n▶ [5/5] Generando reporte PDF...")
-    alertas_dict = [a.to_dict() for a in gestor.todas()]
-    ruta_pdf     = pdf_gen.generar(alertas_dict, metricas_ia, len(paquetes_live))
+## 🧩 Componentes principales
 
-    # ── RESUMEN FINAL ────────────────────────────────────────────────
-    resumen = gestor.resumen()
-    print("\n" + "="*62)
-    print("   RESUMEN FINAL DEL ANÁLISIS")
-    print("="*62)
-    print(f"   Paquetes analizados : {len(paquetes_live)}")
-    print(f"   Amenazas detectadas : {resumen['total']}")
-    print(f"   🔴 Críticas         : {resumen['criticas']}")
-    print(f"   🟠 Altas            : {resumen['altas']}")
-    print(f"   🟡 Medias           : {resumen['medias']}")
-    print(f"   🟢 Bajas            : {resumen['bajas']}")
-    print(f"   Reporte PDF         : {ruta_pdf}")
-    print("="*62)
+### 🔹 `core.sniffer.SnifferSimulado`
+Simula la captura de paquetes de red, aplicando una lista negra de IPs y una semilla de aleatoriedad para reproducibilidad.
 
-    # ── DASHBOARD WEB (opcional) ────────────────────────────────────
-    if "--dashboard" in sys.argv:
-        from dashboard.app import run as run_dashboard
-        run_dashboard(logger, port=5000)
+### 🔹 `modelos.motor_ia.MotorIA`
+Motor de inteligencia artificial encargado de entrenar y analizar el tráfico. Detecta automáticamente si **TensorFlow** está disponible; si no, opera únicamente con **Random Forest** (modo *failsafe*).
 
+### 🔹 `alertas.gestor_alertas.GestorAlertas`
+Genera y clasifica las alertas de seguridad según su nivel de severidad:
 
-if __name__ == "__main__":
-    main()
+- 🔴 **Críticas**
+- 🟠 **Altas**
+- 🟡 **Medias**
+- 🟢 **Bajas**
+
+### 🔹 `registro.logger.LoggerIDS`
+Registra cada alerta detectada durante el monitoreo.
+
+### 🔹 `registro.generador_pdf.GeneradorPDF`
+Genera el reporte final en PDF con las métricas del modelo y las alertas detectadas.
+
+---
+
+## 📊 Resumen final
+
+Al terminar la ejecución, el sistema imprime un resumen con:
+
+- Total de paquetes analizados
+- Total de amenazas detectadas
+- Desglose por severidad (crítica, alta, media, baja)
+- Ruta del reporte PDF generado
+
+---
+
+## 🖥️ Dashboard web (opcional)
+
+El sistema incluye un dashboard web opcional para visualizar los resultados en tiempo real.
+
+```bash
+python main.py --dashboard
+```
+
+Esto levanta el servidor en `http://localhost:5000`.
+
+---
+
+## 🚀 Uso
+
+```bash
+# Ejecución estándar
+python main.py
+
+# Ejecución con dashboard web
+python main.py --dashboard
+```
+
+> 💡 Si TensorFlow no está instalado, el sistema continúa funcionando normalmente usando solo Random Forest.
+
+---
+
+## 📁 Estructura relevante del proyecto
+
+```
+├── main.py
+├── core/
+│   └── sniffer.py
+├── modelos/
+│   └── motor_ia.py
+├── alertas/
+│   └── gestor_alertas.py
+├── registro/
+│   ├── logger.py
+│   └── generador_pdf.py
+└── dashboard/
+    └── app.py
+```
+
