@@ -73,3 +73,4 @@ class DetectorRandomForest(DetectorBase):
         nombres = ["protocolo","tamanio","puerto_src","puerto_dst",
                    "hash_ip_src","hash_ip_dst"]
         return dict(zip(nombres, self._modelo.feature_importances_.tolist()))
+
