@@ -2,19 +2,11 @@
 
 Sistema de Detección de Intrusos (IDS) basado en **Programación Orientada a Objetos** e **Inteligencia Artificial**, desarrollado como proyecto del curso de POO.
 
-<div align="center">
 
-![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python&logoColor=white)
-![Estado](https://img.shields.io/badge/estado-en%20desarrollo-yellow)
-![Licencia](https://img.shields.io/badge/licencia-académica-lightgrey)
-
-</div>
-
----
 
 ## 📖 Descripción
 
-Este proyecto simula un **IDS (Intrusion Detection System)** orientado a redes de telecomunicaciones. Combina un motor de reglas clásico con modelos de **Machine Learning** (Random Forest y, opcionalmente, TensorFlow) para clasificar tráfico de red simulado, generar alertas de seguridad y producir un reporte final en PDF.
+Este proyecto simula un **IDS (Intrusion Detection System)** orientado a redes de telecomunicaciones y ciberseguridad. Combina un motor de reglas clásico con modelos de **Machine Learning** (Random Forest y, opcionalmente, TensorFlow) para clasificar tráfico de red simulado, generar alertas de seguridad y producir un reporte final en PDF.
 
 ---
 
