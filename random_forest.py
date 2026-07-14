@@ -1,115 +1,75 @@
 """
-modelos/motor_ia.py
-Motor de IA que orquesta los tres modelos: RF + Autoencoder + CNN.
-Aplica votación por ensemble para mayor precisión.
-POO: Composición — contiene instancias de los tres detectores.
+modelos/random_forest.py
+Clasificador Random Forest para identificar tipos de ataque.
+POO: Hereda DetectorBase, implementa métodos abstractos.
 """
+import numpy as np
+from modelos.detector_base import DetectorBase
 from core.paquete import Paquete
-from modelos.random_forest    import DetectorRandomForest
-from modelos.autoencoder      import AutoencoderDetector
-from modelos.cnn_clasificador import CNNClasificador
 
 
-class MotorIA:
+class DetectorRandomForest(DetectorBase):
     """
-    Orquestador de los modelos de IA del IDS.
-    Combina RF + CNN (clasificación) + Autoencoder (anomalía)
-    mediante un esquema de votación ponderada.
-
-    El parámetro usar_tensorflow permite degradar a solo Random Forest
-    si TensorFlow no está instalado (failsafe).
+    Clasifica paquetes en: normal, dos, portscan, bruteforce, mitm.
+    Usa RandomForestClassifier de scikit-learn.
     """
 
-    def __init__(self, usar_tensorflow: bool = True):
-        self.rf          = DetectorRandomForest(n_arboles=150)
-        self._usar_tf    = usar_tensorflow
-        self.autoencoder = AutoencoderDetector() if usar_tensorflow else None
-        self.cnn         = CNNClasificador()     if usar_tensorflow else None
-        self._entrenado  = False
-        self.metricas    = {}
+    def __init__(self, n_arboles: int = 150, max_profundidad: int = None):
+        super().__init__("Random Forest")
+        self.n_arboles       = n_arboles
+        self.max_profundidad = max_profundidad
+        self._modelo         = None
+        self._encoder        = None
 
     def entrenar(self, paquetes: list, etiquetas: list) -> dict:
-        """Entrena los modelos disponibles con el mismo conjunto de datos."""
-        print("\n  📦 Entrenando Random Forest...")
-        m_rf = self.rf.entrenar(paquetes, etiquetas)
-        self.metricas["random_forest"] = m_rf
+        from sklearn.ensemble import RandomForestClassifier
+        from sklearn.preprocessing import LabelEncoder
+        from sklearn.model_selection import train_test_split
+        from sklearn.metrics import accuracy_score
 
-        if self._usar_tf and self.autoencoder:
-            print("  📦 Entrenando Autoencoder...")
-            self.metricas["autoencoder"] = self.autoencoder.entrenar(paquetes, etiquetas)
+        X = np.array([p.to_features() for p in paquetes])
+        self._encoder = LabelEncoder()
+        y = self._encoder.fit_transform(etiquetas)
 
-        if self._usar_tf and self.cnn:
-            print("  📦 Entrenando CNN...")
-            self.metricas["cnn"] = self.cnn.entrenar(paquetes, etiquetas)
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=0.2, random_state=42, stratify=y
+        )
 
-        self._entrenado = True
-        print("\n  🚀 Motor IA listo.\n")
+        self._modelo = RandomForestClassifier(
+            n_estimators=self.n_arboles,
+            max_depth=self.max_profundidad,
+            random_state=42,
+            class_weight="balanced",
+        )
+        self._modelo.fit(X_train, y_train)
+
+        y_pred = self._modelo.predict(X_test)
+        acc    = accuracy_score(y_test, y_pred)
+
+        self.entrenado = True
+        self.metricas  = {"accuracy": round(acc, 4)}
+        print(f"  ✅ Random Forest entrenado | accuracy={acc:.2%} | "
+              f"muestras={len(paquetes)}")
         return self.metricas
 
-    def analizar(self, paquete: Paquete) -> dict:
-        """
-        Analiza un paquete con los modelos disponibles y combina resultados.
-        Retorna el veredicto final con etiqueta, score y modelo que ganó.
-        """
-        if not self._entrenado:
-            raise RuntimeError("Motor IA no entrenado. Llama a entrenar() primero.")
-
-        res_rf = self.rf.predecir(paquete)
-
-        if self._usar_tf and self.autoencoder:
-            res_ae = self.autoencoder.predecir(paquete)
-        else:
-            res_ae = {"es_amenaza": False, "confianza": 0.0, "etiqueta": "normal"}
-
-        if self._usar_tf and self.cnn:
-            res_cnn = self.cnn.predecir(paquete)
-        else:
-            res_cnn = {"es_amenaza": res_rf["es_amenaza"],
-                       "confianza":  res_rf["confianza"],
-                       "etiqueta":   res_rf["etiqueta"]}
-
-        votos_amenaza = sum([
-            res_rf["es_amenaza"]  * 0.40,
-            res_cnn["es_amenaza"] * 0.40,
-            res_ae["es_amenaza"]  * 0.20,
-        ])
-        es_amenaza = votos_amenaza >= 0.35
-
-        if res_rf["confianza"] >= res_cnn["confianza"]:
-            etiqueta_final = res_rf["etiqueta"]
-            conf_final     = res_rf["confianza"]
-            modelo_ganador = "Random Forest"
-        else:
-            etiqueta_final = res_cnn["etiqueta"]
-            conf_final     = res_cnn["confianza"]
-            modelo_ganador = "CNN"
-
-        if res_ae.get("es_amenaza") and not es_amenaza:
-            etiqueta_final = "anomalia"
-            es_amenaza     = True
-            conf_final     = res_ae["confianza"]
-            modelo_ganador = "Autoencoder"
-
-        paquete.etiqueta     = etiqueta_final
-        paquete.score_riesgo = conf_final
-
+    def predecir(self, paquete: Paquete) -> dict:
+        if not self.entrenado:
+            raise RuntimeError("Modelo no entrenado.")
+        x    = np.array([paquete.to_features()])
+        pred = self._modelo.predict(x)[0]
+        prob = float(self._modelo.predict_proba(x)[0].max())
+        etiq = str(self._encoder.inverse_transform([pred])[0])
         return {
-            "etiqueta":       etiqueta_final,
-            "confianza":      round(conf_final, 4),
-            "es_amenaza":     es_amenaza,
-            "modelo_ganador": modelo_ganador,
-            "votos_amenaza":  round(votos_amenaza, 3),
-            "detalle": {
-                "random_forest": res_rf,
-                "autoencoder":   res_ae,
-                "cnn":           res_cnn,
-            },
+            "etiqueta":   etiq,
+            "confianza":  round(prob, 4),
+            "es_amenaza": etiq != "normal",
+            "modelo":     self.nombre,
         }
 
-    def esta_listo(self) -> bool:
-        return self._entrenado
-
-    def __str__(self) -> str:
-        estado = "listo" if self._entrenado else "sin entrenar"
-        modelos = "RF" + (" + Autoencoder + CNN" if self._usar_tf else " (solo)")
-        return f"MotorIA [{estado}] — {modelos}"
+    def importancia_features(self) -> dict:
+        """Retorna importancia de cada característica."""
+        if not self.entrenado:
+            return {}
+        nombres = ["protocolo","tamanio","puerto_src","puerto_dst",
+                   "hash_ip_src","hash_ip_dst"]
+        return dict(zip(nombres, self._modelo.feature_importances_.tolist()))
