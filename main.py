@@ -1,113 +1,102 @@
 """
-modelos/cnn_clasificador.py
-Red Neuronal Convolucional (CNN) para clasificar tráfico de red.
-Trata el vector de características como una "señal 1D".
-POO: Hereda DetectorBase — polimorfismo con predecir().
+main.py — IDS FIEE
+Sistema de Detección de Intrusos basado en POO + IA
+Curso: Programación Orientada a Objetos
+
+Autor   : [Tu nombre]
+Curso   : Programación Orientada a Objetos
+Fecha   : 2025
 """
-import numpy as np
-from modelos.detector_base import DetectorBase
-from core.paquete import Paquete
+import sys
 
 
-class CNNClasificador(DetectorBase):
-    """
-    CNN 1D que clasifica paquetes en tipos de ataque.
-    Arquitectura: Conv1D → MaxPool → Conv1D → Dense → Softmax
-    """
+def cabecera():
+    print("\n" + "="*62)
+    print("   SISTEMA DE DETECCIÓN DE INTRUSOS (IDS) — FIEE")
+    print("   Ciberseguridad en Redes de Telecomunicaciones — POO")
+    print("="*62 + "\n")
 
-    def __init__(self, epochs: int = 40):
-        super().__init__("CNN 1D")
-        self.epochs   = epochs
-        self._modelo  = None
-        self._encoder = None
-        self._scaler  = None
 
-    def _construir_modelo(self, n_features: int, n_clases: int):
-        import tensorflow as tf
-        from tensorflow.keras import layers, Model
+def main():
+    cabecera()
 
-        tf.random.set_seed(42)
+    from core.sniffer           import SnifferSimulado
+    from modelos.motor_ia       import MotorIA
+    from alertas.gestor_alertas import GestorAlertas
+    from registro.logger        import LoggerIDS
+    from registro.generador_pdf import GeneradorPDF
 
-        entrada = layers.Input(shape=(n_features, 1), name="entrada")
+    # Detectar si TensorFlow está disponible (failsafe)
+    try:
+        import tensorflow  # noqa: F401
+        usar_tf = True
+    except ImportError:
+        print("  [INFO] TensorFlow no encontrado. Se usará solo Random Forest.\n")
+        usar_tf = False
 
-        x = layers.Conv1D(32, kernel_size=2, activation="relu", padding="same")(entrada)
-        x = layers.MaxPooling1D(pool_size=2, padding="same")(x)
-        x = layers.Conv1D(64, kernel_size=2, activation="relu", padding="same")(x)
-        x = layers.GlobalAveragePooling1D()(x)
-        x = layers.Dense(64, activation="relu")(x)
-        x = layers.Dropout(0.3)(x)
-        salida = layers.Dense(n_clases, activation="softmax", name="salida")(x)
+    # ── 1. INICIALIZAR COMPONENTES ───────────────────────────────────
+    print("▶ [1/5] Inicializando componentes del sistema...")
+    sniffer  = SnifferSimulado(lista_negra=["203.0.113.4"], semilla=99)
+    motor    = MotorIA(usar_tensorflow=usar_tf)
+    gestor   = GestorAlertas()
+    logger   = LoggerIDS()
+    pdf_gen  = GeneradorPDF()
+    print("   ✓ Sniffer, MotorIA, GestorAlertas, Logger, PDF — listos\n")
 
-        modelo = Model(inputs=entrada, outputs=salida, name="CNN_IDS")
-        modelo.compile(
-            optimizer="adam",
-            loss="sparse_categorical_crossentropy",
-            metrics=["accuracy"],
-        )
-        return modelo
+    # ── 2. GENERAR DATOS DE ENTRENAMIENTO ────────────────────────────
+    print("▶ [2/5] Generando dataset de entrenamiento (simulado)...")
+    paquetes_train, etiquetas_train = sniffer.generar_con_etiquetas(cantidad=400)
+    from collections import Counter
+    dist = Counter(etiquetas_train)
+    for etiq, cnt in dist.items():
+        print(f"   {etiq:12s}: {cnt} muestras")
+    print()
 
-    def entrenar(self, paquetes: list, etiquetas: list) -> dict:
-        import tensorflow as tf
-        from sklearn.preprocessing import LabelEncoder, MinMaxScaler
-        from sklearn.model_selection import train_test_split
+    # ── 3. ENTRENAR MODELOS DE IA ────────────────────────────────────
+    print("▶ [3/5] Entrenando modelos de IA...")
+    metricas_ia = motor.entrenar(paquetes_train, etiquetas_train)
 
-        X_raw = np.array([p.to_features() for p in paquetes], dtype=np.float32)
-        self._scaler  = MinMaxScaler()
-        X = self._scaler.fit_transform(X_raw)
-        X = X.reshape(X.shape[0], X.shape[1], 1)
+    # ── 4. MONITOREAR TRÁFICO EN VIVO ───────────────────────────────
+    print("▶ [4/5] Monitoreando tráfico de red (60 paquetes)...")
+    paquetes_live = sniffer.capturar(cantidad=60)
+    paquetes_live = sniffer.filtrar(paquetes_live)
+    print(f"   Paquetes capturados y filtrados: {len(paquetes_live)}\n")
 
-        self._encoder = LabelEncoder()
-        y = self._encoder.fit_transform(etiquetas)
+    amenazas = 0
+    for pkt in paquetes_live:
+        resultado = motor.analizar(pkt)
+        alerta    = gestor.crear_alerta(pkt, resultado)
+        if alerta:
+            amenazas += 1
+            print(f"   {alerta}")
+            logger.registrar(alerta)
 
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=0.2, random_state=42, stratify=y
-        )
+    print(f"\n   Total amenazas detectadas: {amenazas} / {len(paquetes_live)}")
 
-        n_clases     = len(np.unique(y))
-        self._modelo = self._construir_modelo(X.shape[1], n_clases)
+    # ── 5. GENERAR REPORTE PDF ──────────────────────────────────────
+    print("\n▶ [5/5] Generando reporte PDF...")
+    alertas_dict = [a.to_dict() for a in gestor.todas()]
+    ruta_pdf     = pdf_gen.generar(alertas_dict, metricas_ia, len(paquetes_live))
 
-        early_stop = tf.keras.callbacks.EarlyStopping(
-            patience=8, restore_best_weights=True, monitor="val_accuracy"
-        )
+    # ── RESUMEN FINAL ────────────────────────────────────────────────
+    resumen = gestor.resumen()
+    print("\n" + "="*62)
+    print("   RESUMEN FINAL DEL ANÁLISIS")
+    print("="*62)
+    print(f"   Paquetes analizados : {len(paquetes_live)}")
+    print(f"   Amenazas detectadas : {resumen['total']}")
+    print(f"   🔴 Críticas         : {resumen['criticas']}")
+    print(f"   🟠 Altas            : {resumen['altas']}")
+    print(f"   🟡 Medias           : {resumen['medias']}")
+    print(f"   🟢 Bajas            : {resumen['bajas']}")
+    print(f"   Reporte PDF         : {ruta_pdf}")
+    print("="*62)
 
-        history = self._modelo.fit(
-            X_train, y_train,
-            epochs=self.epochs,
-            batch_size=32,
-            validation_data=(X_test, y_test),
-            callbacks=[early_stop],
-            verbose=0,
-        )
+    # ── DASHBOARD WEB (opcional) ────────────────────────────────────
+    if "--dashboard" in sys.argv:
+        from dashboard.app import run as run_dashboard
+        run_dashboard(logger, port=5000)
 
-        _, acc = self._modelo.evaluate(X_test, y_test, verbose=0)
-        self.entrenado = True
-        self.metricas  = {
-            "accuracy":      round(float(acc), 4),
-            "epochs_reales": len(history.history["loss"]),
-            "n_clases":      n_clases,
-        }
-        print(f"  ✅ CNN entrenada | accuracy={acc:.2%} | "
-              f"epochs={self.metricas['epochs_reales']}")
-        return self.metricas
 
-    def predecir(self, paquete: Paquete) -> dict:
-        if not self.entrenado:
-            raise RuntimeError("CNN no entrenada.")
-
-        x    = np.array([paquete.to_features()], dtype=np.float32)
-        x_sc = self._scaler.transform(x)
-        x_rs = x_sc.reshape(1, x_sc.shape[1], 1)
-
-        probs = self._modelo.predict(x_rs, verbose=0)[0]
-        idx   = int(np.argmax(probs))
-        etiq  = str(self._encoder.inverse_transform([idx])[0])
-        conf  = float(probs[idx])
-
-        return {
-            "etiqueta":   etiq,
-            "confianza":  round(conf, 4),
-            "es_amenaza": etiq != "normal",
-            "modelo":     self.nombre,
-            "probs":      {cls: round(float(p), 4)
-                           for cls, p in zip(self._encoder.classes_, probs)},
-        }
+if __name__ == "__main__":
+    main()
